@@ -1,0 +1,413 @@
+---
+title: "Data Visualization Final Project Presentation"
+author: "Joanna Wright"
+institute: "Univeristy of Oregon"
+date: "March 2020"
+output:
+  xaringan::moon_reader:
+    lib_dir: libs
+    nature:
+      highlightStyle: github
+      highlightLines: true
+      countIncrementalSlides: false
+---
+
+```{r setup, include=FALSE}
+options(htmltools.dir.version = FALSE)
+
+```
+
+class: center, middle
+
+# Exploring kindergarten readiness in Oregon   
+
+---
+
+# About the dataset
+
+The data for this project are from the **Oregon Kindergarten Aseessment** and can be found [here](https://www.oregon.gov/ode/educator-resources/assessment/Pages/Kindergarten-Assessment.aspx). 
+
+The OKA aims to provide *"a snapshot for communities and schools on the skills that students have when they enter Kindergarten."*
+
+- Early Literacy
+- Early Math
+- Approaches to Learning (including self-regulation) 
+
+*__"domains that are strongly linked to third grade reading and future academic success"__* 
+
+---
+
+# Visualization 1: mapping self-regulation by county 
+
+```{r include=FALSE, echo=FALSE, results='hide'}
+
+library(tidyverse)
+library(rio)
+library(here)
+library(janitor)
+library(maps)
+library(mapdata)
+library(ggtext)
+
+d <- import(here("data", "ka_2018-19_lookback_report.xlsx")) %>%
+  clean_names()
+
+d_tidy <- d %>%
+  rename(county = oregon_kindergarten_assessment,
+         district_id = x2,
+         district = x3,
+         inst_id = x4,
+         inst_name = x5,
+         inst_type = x6,
+         stu_grp_type = x7,
+         stu_grp = x8,
+         avg_self_reg = x9) %>%
+  select(c(1:9))
+
+d_tidy <- d_tidy %>%
+  filter(avg_self_reg != "*")
+
+d_tidy = d_tidy[-1,]
+
+str(d_tidy)
+d_tidy$avg_self_reg = as.numeric(d_tidy$avg_self_reg)
+
+counties <- map_data("county")
+or_county <- subset(counties, region == "oregon")
+
+# identifying keys, joining: 
+
+d %>%
+  count(oregon_kindergarten_assessment, x2, x3, x4, x5, x6, x7, x8) %>%
+  filter(n>1)
+
+or_county %>%
+  count(order) %>%
+  filter(n>1)
+
+d1 <- d_tidy %>%
+  group_by(county) %>%
+  summarise(avg_self_reg_county = mean(avg_self_reg))
+
+or_county <- or_county %>%
+  rename(county = subregion)
+
+d1 <- d1 %>%
+  mutate(county = str_to_lower(county))
+
+join1 <- left_join(d1, or_county)
+
+```
+
+```{r echo=FALSE}
+
+join1 %>%
+ggplot() + 
+    geom_polygon(aes(long, lat, group = group, fill = avg_self_reg_county)) + 
+    coord_fixed(1.3) +
+    scale_fill_viridis_c(name = "Score (1-5 scale)", 
+                         option = "inferno") +
+    labs(title = "Average Self Regulation Scores by County in Oregon",
+         caption = "Data from https://www.oregon.gov/ode/educator-resources/assessment/Pages/Kindergarten-Assessment.aspx",
+         x = NULL,
+         y = NULL) +
+     theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        rect = element_blank())
+
+```
+
+---
+
+# Visualization 2: self-regulation scores by race
+
+```{r include=FALSE, echo=FALSE, results='hide'}
+
+d2 <- d_tidy %>%
+  filter(stu_grp == "Asian" |
+           stu_grp == "White" |
+           stu_grp == "Multi-Racial" |
+           stu_grp == "Native Hawaiian/Pacific Islander" |
+           stu_grp == "Hispanic/Latino" |
+           stu_grp == "Black/African American" |
+           stu_grp == "American Indian/Alaska Native")
+
+
+```
+
+```{r echo=FALSE, warning=FALSE}
+
+d2 %>%
+  ggplot(aes(avg_self_reg, fct_reorder(stu_grp, avg_self_reg), fill = stu_grp)) +
+  geom_violin() +
+  labs(title = "Distribution of self-regulation scores by race",
+       x = "Score (1-5 scale)",
+       y = NULL) +
+  theme_minimal() + 
+  scale_color_brewer(palette = "Accent") +
+  theme(plot.title = element_text(hjust = 1)) +
+  theme(legend.position = "none") 
+
+```
+
+---
+# Still Visualization 2: a closer look at differences by race
+
+```{r echo=FALSE, warning=FALSE}
+
+d2 %>%
+  filter(stu_grp == "White" |
+           stu_grp == "Hispanic/Latino") %>%
+  group_by(stu_grp, county) %>%
+  summarise(avg_self_reg_race = mean(avg_self_reg)) %>%
+  pivot_wider(
+    names_from = stu_grp,
+    values_from = avg_self_reg_race
+  ) %>%
+  mutate(white_hisp_diff = c(White - `Hispanic/Latino`)) %>%
+  filter(white_hisp_diff != "NA") %>%
+  ggplot(aes(fct_reorder(county, white_hisp_diff), white_hisp_diff)) +
+  geom_point(col = "darkred") +
+  coord_flip() + 
+  gghighlight::gghighlight(white_hisp_diff < -.25 |
+                             white_hisp_diff > .25,
+                           unhighlighted_colour = alpha("steelblue", 0.4)) + 
+  geom_point(col = "darkred", size = 2.5) + 
+  labs(title = "Differences Self-Regulation Scores by Race in Oregon",
+       subtitle = "Disparities in scores between White and Hispanic/Latino students",
+       x = NULL,
+       y = "Difference in scores")
+
+```
+
+---
+# Visualization 3: self-regulation scores over time (2014-2018)
+```{r echo=FALSE, include=FALSE}
+
+dfirstwave <- import(here("data", "ka_2013-14_lookback_report.xlsx")) %>%
+  clean_names()
+
+dfirstwave1 <- dfirstwave %>%
+  rename(county = oregon_kindergarten_assessment,
+         district_id = x2,
+         district = x3,
+         inst_id = x4,
+         inst_name = x5,
+         inst_type = x6,
+         stu_grp_type = x7,
+         stu_grp = x8,
+         avg_self_reg = x9) %>%
+  select(c(1:9))
+
+dfirstwave1 <- dfirstwave1 %>%
+  filter(avg_self_reg != "*")
+
+dfirstwave1 = dfirstwave1[-1,]
+
+dfirstwave1$avg_self_reg = as.numeric(dfirstwave1$avg_self_reg)
+
+dfirstwave2 <- dfirstwave1 %>%
+  group_by(county) %>%
+  summarise(avg_self_reg_county_firstwave = mean(avg_self_reg))
+
+dfirstwave2 <- dfirstwave2 %>%
+  mutate(county = str_to_lower(county))
+
+d_tidy <- d_tidy %>%
+  mutate(county = str_to_lower(county))
+
+join2 <- left_join(d_tidy, dfirstwave2)
+
+join2 <- join2 %>%
+  rename(`2014` = avg_self_reg_county_firstwave,
+         `2018` = avg_self_reg)
+
+join2$`2014` = as.numeric(join2$`2014`)
+join2$`2018` = as.numeric(join2$`2018`)
+
+join2 <- join2 %>%
+  select(1, 9, 10)
+
+join2 <- join2 %>%
+  pivot_longer(
+    cols = 2:3,
+    names_to = "Year", 
+    values_to = "Score",
+  )
+
+```
+**OKA aims to:** 
+1. identify systemic opportunity gaps
+2. determine resource allocation to best support students in need 
+3. measure improvement over time
+
+
+**Purpose of Visualization 3:**
+
+To address all of the OKA aims by demonstrating change in self-regulation scores over time by county. 
+
+**Audience:** 
+
+Oregon Department of Education, policymakers
+
+---
+### Viz 3: initial try  
+```{r echo=FALSE, warning=FALSE}
+
+join2 %>%
+  group_by(county, Year) %>%
+  summarise(avg_score = mean(Score)) %>%
+  ggplot(aes(county, avg_score)) +
+  geom_line(aes(group = county), color = "gray40") +
+  geom_point(aes(color = Year)) +
+  coord_flip() +
+  labs(title = "Self Regulation Score Changes from 2014 to 2018",
+       x = NULL,
+       y = "Score (on 1-5 scale)")
+
+```
+
+---
+### Viz 3: order according to average score, remove legend
+
+```{r echo=FALSE, warning=FALSE}
+
+join2 %>%
+  group_by(county, Year) %>%
+  summarise(avg_score = mean(Score)) %>%
+  filter(county != "all counties") %>%
+  ungroup() %>%
+  ggplot(aes(fct_reorder(county, avg_score), avg_score)) +
+  geom_line(aes(group = county), color = "gray40") +
+  geom_point(aes(color = Year), size = 1.5) +
+  coord_flip() +
+  theme(
+    plot.title.position = "plot",
+    plot.subtitle = element_markdown()) +
+  labs(title = "Self Regulation Score Changes from 2014 to 2018",
+       subtitle = "<span style = 'color:#FF6C67;'>2014</span> compared to <span style = 'color:#00C2C6;'>2018 </span>change.",
+       x = NULL,
+       y = "Score (on 1-5 scale)") + 
+  guides(color = "none")
+
+```
+
+---
+### Viz 3: order according to *change* in score rather than *average* score
+```{r echo=FALSE, warning=FALSE}
+
+join2 %>%
+  group_by(county, Year) %>%
+  summarise(avg_score = mean(Score)) %>%
+  pivot_wider(
+    names_from = "Year",
+    values_from = "avg_score"
+  ) %>%
+  mutate(change_14_to_18 = c(`2018` - `2014`)) %>%
+  pivot_longer(
+    cols = 2:3,
+    names_to = "Year",
+    values_to = "Score"
+    ) %>%
+  ggplot(aes(fct_reorder(county, change_14_to_18), Score)) +
+  geom_point(aes(color = Year), size = 1.5) +
+  geom_line(aes(group = county), color = "gray40") +
+  coord_flip() +
+  labs(title = "Self Regulation Score Changes from 2014 to 2018",
+       x = NULL,
+       y = "Score (on 1-5 scale)")
+
+```
+
+
+---
+### Viz 3: further refining (color, geom sizes, theme, subtitle)
+
+```{r echo=FALSE, warning=FALSE}
+
+join2 <- join2 %>%
+  mutate(county = str_to_title(county))
+
+join2 %>%
+  group_by(county, Year) %>%
+  summarise(avg_score = mean(Score)) %>%
+  pivot_wider(
+    names_from = "Year",
+    values_from = "avg_score"
+  ) %>%
+  mutate(change_14_to_18 = c(`2018` - `2014`)) %>%
+  pivot_longer(
+    cols = 2:3,
+    names_to = "Year",
+    values_to = "Score"
+    ) %>%
+  filter(county != "all counties") %>%
+  ggplot(aes(fct_reorder(county, -change_14_to_18), Score)) +
+  geom_line(aes(group = county), color = "gray40", size = 1) +
+  geom_point(aes(color = Year), size = 2.2) +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Self Regulation Score Changes from 2014 to 2018",
+       subtitle = "Ordered from greatest increase to greatest decrease",
+       x = NULL,
+       y = "Score (on 1-5 scale)") + 
+  scale_color_brewer(palette = "Set1")
+
+```
+
+---
+# Challenges along the way
+### Mapping data onto aesthetics: thinking in layers
+
+```{r eval=FALSE}
+
+ggplot(aes(x,y)) %>%
+  geom(aes(???))
+
+```
+### Adjusting proportions 
+### Problem-solving via googling:
+- Last term it never worked. 
+- Now it works sometimes! Which is so exciting!! 
+- But it's still hard to know how long to struggle with something...
+---
+# Other challenges: **very** ugly maps! 
+```{r echo=FALSE, warning=FALSE}
+
+join1 %>%
+ggplot() + 
+    geom_polygon(aes(long, lat, group = group, fill = avg_self_reg_county)) + 
+    coord_fixed(1.3) +
+    scale_fill_viridis_c(name = "Score (1-5 scale)", 
+                         option = "inferno") +
+    labs(title = "Average Self Regulation Scores by County in Oregon",
+         x = NULL,
+         y = NULL) +
+     theme(axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        rect = element_blank()) +
+  geom_text(data = or_county, aes(long, lat, label = county), size = 2)
+
+```
+
+---
+# Successes along the way: 
+### Pivoting and regular expression
+```{r eval=FALSE}
+
+join2 <- join2 %>%
+  pivot_longer(
+    cols = 2:3,
+    names_to = "Year", 
+    values_to = "Score",
+*    names_pattern = ".+_.+_.+_(.+)"
+  )
+```
+### Also, tidying -> joining datasets
+---
+
+class: center, middle
+
+# Thank you!
